@@ -1,6 +1,6 @@
 // Piano Drills service worker: network first (always fresh when online), cached copy when offline.
 // Bump VERSION when you deploy so old caches get cleaned up.
-const VERSION = "v9";
+const VERSION = "v10";
 const APP_CACHE = "piano-drills-" + VERSION;
 const FONT_CACHE = "piano-drills-fonts";
 const APP_FILES = [
@@ -37,6 +37,18 @@ self.addEventListener("fetch", (event) => {
     return;
   }
   if (url.origin !== self.location.origin || url.pathname.startsWith("/api/")) return;
+
+  // Piano samples never change, so skip the network once they are cached.
+  if (url.pathname.startsWith("/samples/")) {
+    event.respondWith(caches.open(APP_CACHE).then(async (cache) => {
+      const hit = await cache.match(req);
+      if (hit) return hit;
+      const res = await fetch(req);
+      if (res.ok) cache.put(req, res.clone());
+      return res;
+    }));
+    return;
+  }
 
   event.respondWith(
     fetch(req)

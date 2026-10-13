@@ -11,7 +11,6 @@ export const mod12 = (x) => ((x % 12) + 12) % 12;
 export const pc = (n) => mod12(NAT[n.l] + n.a);
 export const isBlack = (m) => [1, 3, 6, 8, 10].includes(mod12(m));
 export const octOf = (m) => Math.floor(m / 12) - 1;
-export const sameNote = (x, y) => x.l === y.l && x.a === y.a;
 
 export function N(s) {
   const l = LETTERS.indexOf(s[0]);

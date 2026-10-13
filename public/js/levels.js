@@ -1,7 +1,7 @@
 // The level ladder: each level generates questions that work both ways.
 //   Play it: the prompt names something; you click the keys (targets).
 //   Name it: keys are shown; you build the name from parts (fields + grade).
-// A chord or scale has one target per octave and any one of them counts. (`drill: true` would require all of them.)
+// A chord or scale has one target per octave and any one of them counts.
 
 import {
   N, spell, pc, mod12, isBlack, octOf, LOW, HIGH, LETTERS, midiOf, simpleName,
@@ -335,4 +335,3 @@ function scaleLevel(id, title, desc, types) {
   };
 }
 
-export const levelIndex = (id) => LEVELS.findIndex((l) => l.id === id);

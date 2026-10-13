@@ -5,16 +5,14 @@ import { lessonHTML } from "./lessons.js";
 import * as adaptive from "./adaptive.js";
 import { createInput } from "./input.js";
 import { createStore } from "./store.js";
-import { nameAt, octOf } from "./theory.js";
+import { nameAt } from "./theory.js";
 
 const PASS = 0.9;
 const ROUND = 10;        // questions per round
-const DRILL_ROUND = 3;   // questions per round for levels that set `drill: true`
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const pct = (x) => Math.round(x * 100) + "%";
-const ordinal = (n) => n + (n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th");
 
 let midiOn = false;
 let midiText = "Off";
@@ -43,7 +41,8 @@ const input = createInput({
 /* ---------------- progress helpers ---------------- */
 const rec = (i, m) => store.progress.levels[LEVELS[i].id]?.[m];
 const bestOf = (i) => Math.max(rec(i, "play")?.best || 0, rec(i, "name")?.best || 0);
-const unlocked = (i) => S().unlockAll || i === 0 || bestOf(i - 1) >= PASS;
+const passed = (i) => bestOf(i) >= PASS;
+const unlocked = (i) => S().unlockAll || i === 0 || passed(i - 1);
 function nextUp() {
   for (let i = 0; i < LEVELS.length; i++) if (unlocked(i) && bestOf(i) < PASS) return i;
   for (let i = LEVELS.length - 1; i >= 0; i--) if (unlocked(i)) return i;
@@ -67,12 +66,11 @@ function renderSidebar() {
   LEVELS.forEach((L, i) => {
     if (L.group !== group) { group = L.group; html += `<div class="grp">${esc(group)}</div>`; }
     const open = unlocked(i), p = rec(i, "play")?.best, n = rec(i, "name")?.best;
-    const passed = bestOf(i) >= PASS;
     html += `<button class="lvl${i === levelIdx && !onSmart ? " cur" : ""}${open ? "" : " locked"}" data-act="level" data-i="${i}" ${i === levelIdx && !onSmart ? 'aria-current="true"' : ""}>
       <span class="num">${String(i + 1).padStart(2, "0")}</span>
       <span class="lt"><span class="ln">${esc(L.title)}</span>
         <span class="ls">${open ? `${scoreChip("Play", p)}${scoreChip("Name", n)}` : "Locked"}</span></span>
-      <span class="st">${!open ? lockIcon() : passed ? '<span class="pass" title="Passed">✓</span>' : i === up ? '<span class="up">Next</span>' : ""}</span>
+      <span class="st">${!open ? lockIcon() : passed(i) ? '<span class="pass" title="Passed">✓</span>' : i === up ? '<span class="up">Next</span>' : ""}</span>
     </button>`;
   });
   $("#levels").innerHTML = html;
@@ -114,14 +112,12 @@ function introView() {
   </div>`;
 }
 
-function passedOf(i) { return bestOf(i) >= PASS; }
-
 function smartView() {
   const now = Date.now();
   const items = store.progress.items;
   const open = LEVELS.map((_, i) => i).filter(unlocked);
   const top = open[open.length - 1];
-  const mastery = (i) => adaptive.levelMastery(items[mode === "name" ? "name" : "play"], LEVELS[i].id, passedOf(i), now);
+  const mastery = (i) => adaptive.levelMastery(items[mode], LEVELS[i].id, passed(i), now);
   const preview = top + 1 < LEVELS.length ? LEVELS[top + 1] : null;
   const rows = open.map((i) => `<div class="mrow"><span>${esc(LEVELS[i].title)}</span><span class="mbar"><i style="width:${Math.round(mastery(i) * 100)}%"></i></span><span class="mpct">${pct(mastery(i))}</span></div>`).join("");
   const sum = (m) => adaptive.summary(items[m], now);
@@ -180,15 +176,6 @@ function quizView() {
   const title = playMode ? q.title : q.nameTitle;
   const sub = playMode ? q.sub : q.nameSub || "";
   let body = `<h2 class="prompt">${esc(title)}</h2>${sub ? `<p class="sub">${esc(sub)}</p>` : ""}`;
-  if (playMode && q.drill) {
-    const done = Q.ts.filter((s) => s === "done" || s === "fixed").length;
-    body += `<div class="octs" aria-label="Octaves found">${q.targets.map((t, i) => {
-      const s = Q.ts[i], o = octOf(t.notes[0].m);
-      const cls = s === "done" ? "done" : s === "fixed" ? "fixed" : i === Q.reveal ? "rev" : "";
-      const mark = s === "done" ? "✓" : s === "fixed" ? "✓" : i === Q.reveal ? "!" : "";
-      return `<span class="oct ${cls}" title="${s === "done" ? "Found" : s === "fixed" ? "Found after a miss" : "Not yet"}">${mark ? `<b>${mark}</b>` : ""}Oct ${o}</span>`;
-    }).join("")}<span class="octn">${done} of ${q.targets.length} found</span></div>`;
-  }
   if (!playMode) body += builderView();
   const fb = Q.feedback ? `<p class="fb ${Q.feedback.kind}" role="status">${Q.feedback.html}</p>` : `<p class="fb" role="status"></p>`;
   const ready = playMode ? Q.sel.size > 0 : builderReady();
@@ -221,13 +208,9 @@ function renderMarks() {
     const q = Q.q;
     if (R.mode === "play") {
       (q.given || []).forEach((m) => add(m, "given"));
-      if (q.drill) q.targets.forEach((t, i) => {
-        if (Q.ts[i] === "done") t.notes.forEach((x) => add(x.m, "found"));
-        if (Q.ts[i] === "fixed") t.notes.forEach((x) => add(x.m, "fixed"));
-      });
       if (Q.reveal != null) q.targets[Q.reveal].notes.forEach((x) => add(x.m, "reveal"));
       (Q.wrongSel || []).forEach((m) => add(m, "bad"));
-      if (Q.complete && !q.drill && Q.hit != null) q.targets[Q.hit].notes.forEach((x) => add(x.m, "ok"));
+      if (Q.complete && Q.hit != null) q.targets[Q.hit].notes.forEach((x) => add(x.m, "ok"));
       Q.sel.forEach((m) => add(m, "sel"));
     } else {
       q.show.forEach((x) => add(x.m, Q.complete ? (Q.judged ? "ok" : "reveal") : "show"));
@@ -239,10 +222,7 @@ function renderMarks() {
 /* ---------------- quiz flow ---------------- */
 function startRound(i, m) {
   levelIdx = i; mode = m;
-  const L = LEVELS[i];
-  const probe = L.gen({ spelling: S().spelling });
-  const n = m === "play" && probe.drill ? DRILL_ROUND : ROUND;
-  R = { levelIdx: i, mode: m, n, i: -1, checks: 0, correct: 0, seen: new Set(), misses: [], started: Date.now() };
+  R = { levelIdx: i, mode: m, n: ROUND, i: -1, checks: 0, correct: 0, seen: new Set(), misses: [], started: Date.now() };
   view = "quiz";
   nextQuestion();
   renderSidebar();
@@ -261,7 +241,7 @@ function nextQuestion() {
   let q, li;
   if (R.smart) {
     store.progress.items ||= { play: {}, name: {} };
-    ({ li, q } = adaptive.chooseQuestion({ levels: LEVELS, isOpen: unlocked, passedOf, items: store.progress.items[R.mode], spelling: S().spelling, seen: R.seen, again: R.again, i: R.i }));
+    ({ li, q } = adaptive.chooseQuestion({ levels: LEVELS, isOpen: unlocked, passedOf: passed, items: store.progress.items[R.mode], spelling: S().spelling, seen: R.seen, again: R.again, i: R.i }));
     R.seen.add(adaptive.itemId(LEVELS[li].id, q));
   } else {
     li = R.levelIdx;
@@ -271,7 +251,7 @@ function nextQuestion() {
     }
     R.seen.add(q.key);
   }
-  Q = { li, q, sel: new Set(), ts: q.targets.map(() => "pending"), reveal: null, wrongSel: null, missed: false,
+  Q = { li, q, sel: new Set(), reveal: null, wrongSel: null, missed: false,
     complete: false, hit: null, ans: {}, judged: null, feedback: null };
   q.fields.forEach((f) => { if (f.def !== undefined) Q.ans[f.id] = f.def; });
   renderStage();
@@ -284,15 +264,13 @@ function nextQuestion() {
 const namesOf = (notes) => notes.map((x) => nameAt(x.m, x.n, S().spelling)).join(" – ");
 const fb = (kind, html) => { Q.feedback = { kind, html }; };
 
-function nearest(indices, sel) {
-  const c = sel.length ? sel.reduce((a, b) => a + b, 0) / sel.length : 60;
-  let best = indices[0], bd = Infinity;
-  for (const i of indices) {
-    const t = Q.q.targets[i].notes;
-    const tc = t.reduce((a, x) => a + x.m, 0) / t.length;
-    const d = Math.abs(tc - c);
+function nearest(sel) {
+  const c = sel.reduce((a, b) => a + b, 0) / sel.length;
+  let best = 0, bd = Infinity;
+  Q.q.targets.forEach((t, i) => {
+    const d = Math.abs(t.notes.reduce((a, x) => a + x.m, 0) / t.notes.length - c);
     if (d < bd) { bd = d; best = i; }
-  }
+  });
   return best;
 }
 
@@ -322,63 +300,19 @@ function check() {
   if (!sel.length) return;
   const eq = (t) => t.notes.length === sel.length && t.notes.every((x, i) => x.m === sel[i]);
 
-  if (!q.drill) {
-    const hit = q.targets.findIndex(eq);
-    if (hit >= 0) {
-      Q.complete = true; Q.hit = hit; Q.reveal = null; Q.sel.clear();
-      if (!Q.missed) { R.checks++; R.correct++; logItem(true); fb("ok", `<b>Correct.</b> ${esc(namesOf(q.targets[hit].notes))}`); }
-      else fb("fixed", `That's it: ${esc(namesOf(q.targets[hit].notes))}. It counts as a miss, but now it's in your hands.`);
-      if (!Q.auto) play(sel, { arp: !!q.arp });
-    } else {
-      if (!Q.missed) { Q.missed = true; R.checks++; R.misses.push(q.title); logItem(false); }
-      const n = nearest(q.targets.map((_, i) => i), sel);
-      Q.reveal = n; Q.wrongSel = sel; Q.sel.clear();
-      fb("bad", `<b>Not quite.</b> The answer is marked: ${esc(namesOf(q.targets[n].notes))}. Play it to continue.`);
-      play(q.targets[n].notes.map((x) => x.m), { arp: !!q.arp });
-    }
-    return renderStage();
-  }
-
-  // Drill: find the same chord or scale in every octave.
-  const idx = q.targets.findIndex(eq);
-  if (idx >= 0) {
-    const st = Q.ts[idx];
-    const o = octOf(q.targets[idx].notes[0].m);
-    if (st === "done" || st === "fixed") {
-      fb("info", `You already found the one in octave ${o}. Try a different octave.`);
-      Q.sel.clear();
-      return renderStage();
-    }
-    if (st === "missed") Q.ts[idx] = "fixed";
-    else { Q.ts[idx] = "done"; R.checks++; R.correct++; }
-    if (Q.reveal === idx) Q.reveal = null;
-    Q.sel.clear(); Q.wrongSel = null;
+  const hit = q.targets.findIndex(eq);
+  if (hit >= 0) {
+    Q.complete = true; Q.hit = hit; Q.reveal = null; Q.sel.clear();
+    if (!Q.missed) { R.checks++; R.correct++; logItem(true); fb("ok", `<b>Correct.</b> ${esc(namesOf(q.targets[hit].notes))}`); }
+    else fb("fixed", `That's it: ${esc(namesOf(q.targets[hit].notes))}. It counts as a miss, but now it's in your hands.`);
     if (!Q.auto) play(sel, { arp: !!q.arp });
-    const left = Q.ts.filter((s) => s === "pending" || s === "missed").length;
-    if (!left) {
-      Q.complete = true;
-      const misses = Q.ts.filter((s) => s === "fixed").length;
-      fb(misses ? "fixed" : "ok", misses ? `All ${q.targets.length} octaves found, ${misses} after a miss.` : `<b>All ${q.targets.length} octaves, first try.</b>`);
-    } else if (Q.reveal != null) {
-      fb("info", `Octave ${o} ✓. Now play the marked one in octave ${octOf(q.targets[Q.reveal].notes[0].m)}.`);
-    } else {
-      fb("ok", `<b>Octave ${o} ✓</b> ${esc(namesOf(q.targets[idx].notes))} · ${left} to go.`);
-    }
-    return renderStage();
+  } else {
+    if (!Q.missed) { Q.missed = true; R.checks++; R.misses.push(q.title); logItem(false); }
+    const n = nearest(sel);
+    Q.reveal = n; Q.wrongSel = sel; Q.sel.clear();
+    fb("bad", `<b>Not quite.</b> The answer is marked: ${esc(namesOf(q.targets[n].notes))}. Play it to continue.`);
+    play(q.targets[n].notes.map((x) => x.m), { arp: !!q.arp });
   }
-  if (Q.reveal != null) {
-    Q.wrongSel = sel; Q.sel.clear();
-    fb("bad", `Not yet. Play the marked keys in octave ${octOf(q.targets[Q.reveal].notes[0].m)}: ${esc(namesOf(q.targets[Q.reveal].notes))}.`);
-    play(q.targets[Q.reveal].notes.map((x) => x.m), { arp: !!q.arp });
-    return renderStage();
-  }
-  const pending = Q.ts.map((s, i) => (s === "pending" ? i : -1)).filter((i) => i >= 0);
-  const n = nearest(pending, sel);
-  Q.ts[n] = "missed"; R.checks++; Q.reveal = n; Q.wrongSel = sel; Q.sel.clear();
-  const o = octOf(q.targets[n].notes[0].m);
-  R.misses.push(`${q.title.replace(/^Play /, "")}, octave ${o}`);
-  fb("bad", `<b>Not quite.</b> Here it is in octave ${o}: ${esc(namesOf(q.targets[n].notes))}. Play it to continue.`);
-  play(q.targets[n].notes.map((x) => x.m), { arp: !!q.arp });
   renderStage();
 }
 
@@ -389,10 +323,14 @@ function next() {
   finishRound();
 }
 
+function logRound(level) {
+  store.progress.history.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7), at: Date.now(), level, mode: R.mode, correct: R.correct, total: R.checks });
+}
+
 function finishRound() {
   const score = R.checks ? R.correct / R.checks : 0;
   if (R.smart) {
-    store.progress.history.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7), at: Date.now(), level: "smart", mode: R.mode, correct: R.correct, total: R.checks });
+    logRound("smart");
     store.saveProgress();
     result = { smart: true, mode: R.mode, score, correct: R.correct, checks: R.checks, misses: R.misses };
     view = "results"; R = null; Q = null;
@@ -406,7 +344,7 @@ function finishRound() {
   const m = (lv[R.mode] ||= { best: 0, rounds: 0, lastAt: 0 });
   const best = score > m.best;
   m.best = Math.max(m.best, score); m.rounds++; m.lastAt = Date.now();
-  p.history.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7), at: Date.now(), level: L.id, mode: R.mode, correct: R.correct, total: R.checks });
+  logRound(L.id);
   store.saveProgress();
   result = { levelIdx: R.levelIdx, mode: R.mode, score, correct: R.correct, checks: R.checks, passed: score >= PASS, best,
     unlockedNext: !wasOpen && R.levelIdx + 1 < LEVELS.length && unlocked(R.levelIdx + 1), misses: R.misses };
@@ -421,9 +359,10 @@ function onKey(m) {
   toggleSel(m);
 }
 
-function toggleSel(m) {
-  if (view !== "quiz" || !Q || R.mode !== "play" || Q.complete) return;
-  if (Q.sel.has(m)) Q.sel.delete(m); else Q.sel.add(m);
+const canPick = () => view === "quiz" && Q && R.mode === "play" && !Q.complete;
+
+// After the selection changes: drop stale feedback, redraw the keys, and enable Check.
+function afterPick() {
   Q.wrongSel = null;
   if (Q.feedback && Q.feedback.kind !== "bad" && Q.feedback.kind !== "info") Q.feedback = null;
   renderMarks();
@@ -431,27 +370,26 @@ function toggleSel(m) {
   if (btn) btn.disabled = Q.sel.size === 0;
 }
 
+function toggleSel(m) {
+  if (!canPick()) return;
+  if (Q.sel.has(m)) Q.sel.delete(m); else Q.sel.add(m);
+  afterPick();
+}
+
 // A controller or the computer keyboard: notes add up, and a full answer is checked and advanced on its own.
 function noteIn(m, vel) {
   kb.hold(m, true);
   noteOn(m, vel);
   if (!S().auto) return toggleSel(m);
-  if (view !== "quiz" || !Q || R.mode !== "play" || Q.complete) return;
+  if (!canPick()) return;
   Q.auto = true;
   Q.sel.add(m);
-  Q.wrongSel = null;
-  if (Q.feedback && Q.feedback.kind !== "bad" && Q.feedback.kind !== "info") Q.feedback = null;
-  if (Q.sel.size < Q.q.targets[0].notes.length) {
-    renderMarks();
-    const btn = $('[data-act="check"]');
-    if (btn) btn.disabled = false;
-    return;
-  }
+  afterPick();
+  if (Q.sel.size < Q.q.targets[0].notes.length) return;
   check();
   if (Q.complete) {
     const t = Q;
-    const hadMiss = t.missed || t.ts.includes("fixed");
-    t.advance = setTimeout(() => { if (Q === t) next(); }, hadMiss ? 1600 : 900);
+    t.advance = setTimeout(() => { if (Q === t) next(); }, t.missed ? 1600 : 900);
   }
 }
 

@@ -101,13 +101,6 @@ button.small { padding: 5px 10px; font-size: 13px; }
 .qbody { display: flex; flex-direction: column; gap: 10px; }
 .prompt { margin: 6px 0 0; font: 500 38px/1.15 var(--display); letter-spacing: -.015em; text-wrap: balance; }
 .sub { margin: 0; color: var(--muted); font-size: 16px; }
-.octs { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-top: 6px; }
-.oct { display: inline-flex; gap: 5px; align-items: center; font: 500 12px var(--mono); padding: 5px 9px; border-radius: 7px; background: var(--sunk); color: var(--muted); }
-.oct.done { background: color-mix(in srgb, var(--ok) 18%, var(--surface)); color: var(--ink); }
-.oct.fixed { background: color-mix(in srgb, var(--reveal) 20%, var(--surface)); color: var(--ink); }
-.oct.rev { background: var(--reveal); color: #1b1300; }
-.oct b { font-weight: 800; }
-.octn { margin-left: 6px; font-size: 13px; color: var(--muted); }
 .fb { margin: 0; min-height: 24px; font-size: 16px; }
 .fb.ok { color: var(--ok); }
 .fb.bad { color: var(--bad); }
@@ -147,7 +140,7 @@ button.small { padding: 5px 10px; font-size: 13px; }
 /* marks: color plus a shape, so state isn't carried by color alone */
 .mk { display: none; width: 15px; height: 15px; border-radius: 50%; margin-bottom: 9px; pointer-events: none; font: 800 10px/15px var(--body); color: #fff; text-align: center; }
 .key.black .mk { width: 11px; height: 11px; font-size: 8px; line-height: 11px; margin-bottom: 7px; }
-.key.sel .mk, .key.ok .mk, .key.bad .mk, .key.reveal .mk, .key.show .mk, .key.given .mk, .key.found .mk, .key.fixed .mk { display: block; }
+.key.sel .mk, .key.ok .mk, .key.bad .mk, .key.reveal .mk, .key.show .mk, .key.given .mk { display: block; }
 .key.sel { background: color-mix(in srgb, var(--sel) 30%, var(--ivory)) !important; }
 .key.black.sel { background: var(--sel) !important; }
 .key.sel .mk { background: var(--sel); box-shadow: 0 0 0 2px #fff; }
@@ -158,15 +151,10 @@ button.small { padding: 5px 10px; font-size: 13px; }
 .key.black.given { background: var(--given) !important; }
 .key.given .mk { background: var(--given); }
 .key.given .mk::after { content: "★"; }
-.key.found { background: color-mix(in srgb, var(--ok) 20%, var(--ivory)) !important; }
-.key.black.found { background: color-mix(in srgb, var(--ok) 70%, #000) !important; }
-.key.found .mk, .key.ok .mk { background: var(--ok); }
-.key.found .mk::after, .key.ok .mk::after, .key.fixed .mk::after { content: "✓"; }
+.key.ok .mk { background: var(--ok); }
+.key.ok .mk::after { content: "✓"; }
 .key.ok { background: color-mix(in srgb, var(--ok) 30%, var(--ivory)) !important; }
 .key.black.ok { background: var(--ok) !important; }
-.key.fixed { background: color-mix(in srgb, var(--reveal) 22%, var(--ivory)) !important; }
-.key.black.fixed { background: color-mix(in srgb, var(--reveal) 70%, #000) !important; }
-.key.fixed .mk { background: var(--reveal); }
 .key.bad { background: color-mix(in srgb, var(--bad) 22%, var(--ivory)) !important; }
 .key.black.bad { background: var(--bad) !important; }
 .key.bad .mk { background: var(--bad); }

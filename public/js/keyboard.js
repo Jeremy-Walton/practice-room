@@ -1,7 +1,7 @@
 // The 88-key keyboard. Every key is a button; marks show selection and feedback.
-import { LOW, HIGH, isBlack, simpleName, octOf, mod12 } from "./theory.js";
+import { LOW, HIGH, isBlack, simpleName, sciName, octOf, mod12 } from "./theory.js";
 
-const MARKS = ["sel", "ok", "bad", "reveal", "show", "given", "found", "fixed", "press"];
+const MARKS = ["sel", "ok", "bad", "reveal", "show", "given"];
 const FLAT_OF = { 1: "D♭", 3: "E♭", 6: "G♭", 8: "A♭", 10: "B♭" };
 const SHARP_OF = { 1: "C♯", 3: "D♯", 6: "F♯", 8: "G♯", 10: "A♯" };
 
@@ -23,7 +23,7 @@ export function createKeyboard(root, { onKey }) {
     b.type = "button";
     b.dataset.m = m;
     b.className = "key " + (isBlack(m) ? "black" : "white");
-    b.setAttribute("aria-label", simpleName(m) + octOf(m));
+    b.setAttribute("aria-label", sciName(m));
     b.innerHTML = `<span class="lab"></span><span class="mk" aria-hidden="true"></span>`;
     if (isBlack(m)) {
       const wi = whites.indexOf(m - 1);

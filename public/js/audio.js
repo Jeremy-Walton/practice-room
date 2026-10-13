@@ -14,9 +14,14 @@ const sampleUrl = (m) => {
 const raw = new Map();      // midi -> ArrayBuffer, fetched before the audio context exists
 const buffers = new Map();  // midi -> AudioBuffer
 
-ROOTS.forEach((m) => {
-  fetch(sampleUrl(m)).then((r) => (r.ok ? r.arrayBuffer() : null)).then((b) => { if (b) { raw.set(m, b); if (ctx) decode(m); } }).catch(() => {});
-});
+// Fetch after the page has loaded, so 2 MB of samples don't compete with the app itself.
+function prefetch() {
+  ROOTS.forEach((m) => {
+    fetch(sampleUrl(m)).then((r) => (r.ok ? r.arrayBuffer() : null)).then((b) => { if (b) { raw.set(m, b); if (ctx) decode(m); } }).catch(() => {});
+  });
+}
+if (document.readyState === "complete") prefetch();
+else window.addEventListener("load", prefetch, { once: true });
 
 function decode(m) {
   const b = raw.get(m);
@@ -47,7 +52,6 @@ function ensure() {
 
 // Browsers only start audio after a gesture, and MIDI messages are not one.
 ["pointerdown", "keydown"].forEach((t) => document.addEventListener(t, ensure, { once: true, capture: true }));
-export const unlockAudio = ensure;
 
 export function setVolume(v) {
   volume = v;
