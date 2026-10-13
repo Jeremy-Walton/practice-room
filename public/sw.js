@@ -1,11 +1,11 @@
 // Piano Drills service worker: network first (always fresh when online), cached copy when offline.
 // Bump VERSION when you deploy so old caches get cleaned up.
-const VERSION = "v8";
+const VERSION = "v9";
 const APP_CACHE = "piano-drills-" + VERSION;
 const FONT_CACHE = "piano-drills-fonts";
 const APP_FILES = [
   "/", "/index.html", "/css/app.css", "/manifest.webmanifest",
-  "/js/app.js", "/js/theory.js", "/js/levels.js", "/js/keyboard.js", "/js/audio.js", "/js/store.js", "/js/input.js", "/js/lessons.js",
+  "/js/app.js", "/js/theory.js", "/js/levels.js", "/js/keyboard.js", "/js/audio.js", "/js/store.js", "/js/input.js", "/js/lessons.js", "/js/adaptive.js",
   "/icons/icon-192.png", "/icons/icon-512.png", "/icons/apple-touch-icon.png",
 ];
 

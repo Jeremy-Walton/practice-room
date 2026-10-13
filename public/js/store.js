@@ -7,7 +7,7 @@ const LS = {
 };
 
 export const DEFAULT_SETTINGS = { spelling: "theory", labels: false, volume: 0.7, unlockAll: false, typing: true, midi: false, auto: true };
-export const emptyProgress = () => ({ levels: {}, history: [] });
+export const emptyProgress = () => ({ levels: {}, history: [], items: { play: {}, name: {} } });
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
@@ -24,6 +24,15 @@ export function mergeProgress(a, b) {
         y.best = Math.max(y.best, x.best || 0);
         y.rounds = Math.max(y.rounds, x.rounds || 0);
         y.lastAt = Math.max(y.lastAt, x.lastAt || 0);
+      }
+    }
+  }
+  // Per-item memory: keep whichever device saw the item last.
+  for (const mode of ["play", "name"]) {
+    for (const src of [a, b]) {
+      for (const [id, r] of Object.entries(src?.items?.[mode] || {})) {
+        const cur = out.items[mode][id];
+        if (!cur || r.t > cur.t || (r.t === cur.t && r.n > cur.n)) out.items[mode][id] = r;
       }
     }
   }

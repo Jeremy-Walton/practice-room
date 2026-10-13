@@ -7,7 +7,7 @@
 // Every /api call needs:  Authorization: Bearer <SYNC_KEY>
 // Set the key once with:  npx wrangler secret put SYNC_KEY
 
-const MAX_DOC_BYTES = 256 * 1024;
+const MAX_DOC_BYTES = 512 * 1024;
 const ID_RE = /^(progress|settings)$/;
 
 export default {

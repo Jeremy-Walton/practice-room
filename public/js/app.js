@@ -2,6 +2,7 @@ import { LEVELS } from "./levels.js";
 import { createKeyboard } from "./keyboard.js";
 import { play, noteOn, noteOff, pedal, setVolume } from "./audio.js";
 import { lessonHTML } from "./lessons.js";
+import * as adaptive from "./adaptive.js";
 import { createInput } from "./input.js";
 import { createStore } from "./store.js";
 import { nameAt, octOf } from "./theory.js";
@@ -60,12 +61,14 @@ function applySettings() {
 /* ---------------- sidebar ---------------- */
 function renderSidebar() {
   const up = nextUp();
-  let html = "", group = "";
+  const onSmart = view === "smart" || R?.smart || (view === "results" && result?.smart);
+  let html = `<button class="lvl smart${onSmart ? " cur" : ""}" data-act="smart"><span class="lt"><span class="ln">Smart practice</span><span class="ls">Mixed, tuned to what you miss</span></span></button>`;
+  let group = "";
   LEVELS.forEach((L, i) => {
     if (L.group !== group) { group = L.group; html += `<div class="grp">${esc(group)}</div>`; }
     const open = unlocked(i), p = rec(i, "play")?.best, n = rec(i, "name")?.best;
     const passed = bestOf(i) >= PASS;
-    html += `<button class="lvl${i === levelIdx ? " cur" : ""}${open ? "" : " locked"}" data-act="level" data-i="${i}" ${i === levelIdx ? 'aria-current="true"' : ""}>
+    html += `<button class="lvl${i === levelIdx && !onSmart ? " cur" : ""}${open ? "" : " locked"}" data-act="level" data-i="${i}" ${i === levelIdx && !onSmart ? 'aria-current="true"' : ""}>
       <span class="num">${String(i + 1).padStart(2, "0")}</span>
       <span class="lt"><span class="ln">${esc(L.title)}</span>
         <span class="ls">${open ? `${scoreChip("Play", p)}${scoreChip("Name", n)}` : "Locked"}</span></span>
@@ -81,6 +84,7 @@ const lockIcon = () => `<svg class="lock" viewBox="0 0 16 16" aria-label="Locked
 function renderStage() {
   const el = $("#stage");
   if (view === "intro") el.innerHTML = introView();
+  else if (view === "smart") el.innerHTML = smartView();
   else if (view === "quiz") el.innerHTML = quizView();
   else el.innerHTML = resultsView();
   renderMarks();
@@ -110,8 +114,43 @@ function introView() {
   </div>`;
 }
 
+function passedOf(i) { return bestOf(i) >= PASS; }
+
+function smartView() {
+  const now = Date.now();
+  const items = store.progress.items;
+  const open = LEVELS.map((_, i) => i).filter(unlocked);
+  const top = open[open.length - 1];
+  const mastery = (i) => adaptive.levelMastery(items[mode === "name" ? "name" : "play"], LEVELS[i].id, passedOf(i), now);
+  const preview = top + 1 < LEVELS.length ? LEVELS[top + 1] : null;
+  const rows = open.map((i) => `<div class="mrow"><span>${esc(LEVELS[i].title)}</span><span class="mbar"><i style="width:${Math.round(mastery(i) * 100)}%"></i></span><span class="mpct">${pct(mastery(i))}</span></div>`).join("");
+  const sum = (m) => adaptive.summary(items[m], now);
+  const chip = (m) => { const x = sum(m); return x.seen ? `${x.mastered} mastered · ${x.learning} learning` : "Nothing tracked yet"; };
+  const weak = ["play", "name"].flatMap((m) => adaptive.weakest(items[m], now, 5).map((x) => ({ ...x, m }))).sort((a, b) => a.p - b.p).slice(0, 5);
+  return `<div class="intro">
+    <p class="eyebrow">Adaptive</p>
+    <h1>Smart practice</h1>
+    <p class="lead">Questions come from every level you have open. It tracks each exact chord, scale and note, brings back what you miss and what you have not seen for a while, and adds new items as you master the ones you are learning.</p>
+    <div class="modes">
+      <button class="mode" data-act="start-smart" data-mode="play"><span class="mt">Play it</span><span class="md">I name it, you find it on the keys.</span><span class="mb">${chip("play")}</span></button>
+      <button class="mode" data-act="start-smart" data-mode="name"><span class="mt">Name it</span><span class="md">I mark the keys, you build the name.</span><span class="mb">${chip("name")}</span></button>
+    </div>
+    <div class="lesson mastery"><p class="eyebrow">Level mastery${mode === "name" ? " · Name it" : " · Play it"}</p>${rows}
+      ${preview ? `<p class="muted small">${esc(preview.title)} joins practice in small amounts once you are strong on level ${top + 1}. It still opens for its own rounds at ${pct(PASS)}.</p>` : ""}</div>
+    ${weak.length ? `<div class="misses"><p class="eyebrow">Needs work</p><ul>${weak.map((x) => `<li>${esc(x.label)} <span class="muted">· ${x.m === "play" ? "Play it" : "Name it"} · ${pct(x.p)}</span></li>`).join("")}</ul></div>` : ""}
+  </div>`;
+}
+
 function resultsView() {
-  const r = result, L = LEVELS[r.levelIdx];
+  const r = result;
+  if (r.smart) return `<div class="intro results">
+    <p class="eyebrow">Smart practice · ${r.mode === "play" ? "Play it" : "Name it"}</p>
+    <h1 class="big">${pct(r.score)}</h1>
+    <p class="lead">${r.correct} of ${r.checks} right on the first try.</p>
+    ${r.misses.length ? `<div class="misses"><p class="eyebrow">To review</p><ul>${r.misses.slice(0, 8).map((m) => `<li>${esc(m)}</li>`).join("")}</ul></div>` : ""}
+    <div class="row"><button class="primary" data-act="start-smart" data-mode="${r.mode}">Keep going</button><button data-act="smart">Back</button></div>
+  </div>`;
+  const L = LEVELS[r.levelIdx];
   return `<div class="intro results">
     <p class="eyebrow">${esc(L.title)} · ${r.mode === "play" ? "Play it" : "Name it"}</p>
     <h1 class="big">${pct(r.score)}</h1>
@@ -128,11 +167,11 @@ function resultsView() {
 }
 
 function quizView() {
-  const L = LEVELS[R.levelIdx], q = Q.q;
+  const L = LEVELS[Q.li], q = Q.q;
   const playMode = R.mode === "play";
   const total = R.n;
   const head = `<div class="qhead">
-      <span class="eyebrow">${esc(L.title)} · ${playMode ? "Play it" : "Name it"}</span>
+      <span class="eyebrow">${R.smart ? "Smart practice · " : ""}${esc(L.title)} · ${playMode ? "Play it" : "Name it"}</span>
       <span class="qprog">Question ${R.i + 1} of ${total}</span>
       <span class="qscore">${R.checks ? `${R.correct} of ${R.checks} right` : "No answers yet"}</span>
       <button class="ghost small" data-act="end">End round</button>
@@ -209,16 +248,30 @@ function startRound(i, m) {
   renderSidebar();
 }
 
+function startSmart(m) {
+  mode = m;
+  R = { smart: true, mode: m, n: ROUND, i: -1, checks: 0, correct: 0, seen: new Set(), again: [], misses: [], started: Date.now() };
+  view = "quiz";
+  nextQuestion();
+  renderSidebar();
+}
+
 function nextQuestion() {
   R.i++;
-  const L = LEVELS[R.levelIdx];
-  let q;
-  for (let tries = 0; tries < 40; tries++) {
-    q = L.gen({ spelling: S().spelling });
-    if (!R.seen.has(q.key)) break;
+  let q, li;
+  if (R.smart) {
+    store.progress.items ||= { play: {}, name: {} };
+    ({ li, q } = adaptive.chooseQuestion({ levels: LEVELS, isOpen: unlocked, passedOf, items: store.progress.items[R.mode], spelling: S().spelling, seen: R.seen, again: R.again, i: R.i }));
+    R.seen.add(adaptive.itemId(LEVELS[li].id, q));
+  } else {
+    li = R.levelIdx;
+    for (let tries = 0; tries < 40; tries++) {
+      q = LEVELS[li].gen({ spelling: S().spelling });
+      if (!R.seen.has(q.key)) break;
+    }
+    R.seen.add(q.key);
   }
-  R.seen.add(q.key);
-  Q = { q, sel: new Set(), ts: q.targets.map(() => "pending"), reveal: null, wrongSel: null, missed: false,
+  Q = { li, q, sel: new Set(), ts: q.targets.map(() => "pending"), reveal: null, wrongSel: null, missed: false,
     complete: false, hit: null, ans: {}, judged: null, feedback: null };
   q.fields.forEach((f) => { if (f.def !== undefined) Q.ans[f.id] = f.def; });
   renderStage();
@@ -243,13 +296,23 @@ function nearest(indices, sel) {
   return best;
 }
 
+// Remember how this exact item went on its first try, for adaptive practice.
+function logItem(correct) {
+  const items = (store.progress.items ||= { play: {}, name: {} })[R.mode];
+  const id = adaptive.itemId(LEVELS[Q.li].id, Q.q);
+  items[id] = adaptive.update(items[id], correct, Date.now(), (Q.q.title || "").replace(/^(Play|Click) /, "").slice(0, 48));
+  adaptive.prune(items);
+  if (!correct && R.smart) R.again.push({ li: Q.li, key: Q.q.key, at: R.i + 3 });
+  store.saveProgress();
+}
+
 function check() {
   if (!Q || Q.complete) return;
   const q = Q.q;
   if (R.mode === "name") {
     if (!builderReady()) return;
     const ok = q.grade(Q.ans, S().spelling);
-    Q.complete = true; Q.judged = ok; R.checks++;
+    Q.complete = true; Q.judged = ok; R.checks++; logItem(ok);
     if (ok) { R.correct++; fb("ok", `<b>Correct.</b> ${esc(q.answer)}`); }
     else { R.misses.push(q.answer); fb("bad", `<b>Not quite.</b> It's ${esc(q.answer)}`); }
     play(q.show.map((x) => x.m), { arp: !!q.arp });
@@ -263,11 +326,11 @@ function check() {
     const hit = q.targets.findIndex(eq);
     if (hit >= 0) {
       Q.complete = true; Q.hit = hit; Q.reveal = null; Q.sel.clear();
-      if (!Q.missed) { R.checks++; R.correct++; fb("ok", `<b>Correct.</b> ${esc(namesOf(q.targets[hit].notes))}`); }
+      if (!Q.missed) { R.checks++; R.correct++; logItem(true); fb("ok", `<b>Correct.</b> ${esc(namesOf(q.targets[hit].notes))}`); }
       else fb("fixed", `That's it: ${esc(namesOf(q.targets[hit].notes))}. It counts as a miss, but now it's in your hands.`);
       if (!Q.auto) play(sel, { arp: !!q.arp });
     } else {
-      if (!Q.missed) { Q.missed = true; R.checks++; R.misses.push(q.title); }
+      if (!Q.missed) { Q.missed = true; R.checks++; R.misses.push(q.title); logItem(false); }
       const n = nearest(q.targets.map((_, i) => i), sel);
       Q.reveal = n; Q.wrongSel = sel; Q.sel.clear();
       fb("bad", `<b>Not quite.</b> The answer is marked: ${esc(namesOf(q.targets[n].notes))}. Play it to continue.`);
@@ -327,8 +390,16 @@ function next() {
 }
 
 function finishRound() {
-  const L = LEVELS[R.levelIdx];
   const score = R.checks ? R.correct / R.checks : 0;
+  if (R.smart) {
+    store.progress.history.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7), at: Date.now(), level: "smart", mode: R.mode, correct: R.correct, total: R.checks });
+    store.saveProgress();
+    result = { smart: true, mode: R.mode, score, correct: R.correct, checks: R.checks, misses: R.misses };
+    view = "results"; R = null; Q = null;
+    renderSidebar(); renderStage();
+    return;
+  }
+  const L = LEVELS[R.levelIdx];
   const wasOpen = R.levelIdx + 1 < LEVELS.length && unlocked(R.levelIdx + 1);
   const p = store.progress;
   const lv = (p.levels[L.id] ||= {});
@@ -397,12 +468,14 @@ document.addEventListener("click", (e) => {
   const a = b.dataset.act;
   if (a === "level") { levelIdx = +b.dataset.i; view = "intro"; R = null; Q = null; renderSidebar(); renderStage(); }
   else if (a === "start") startRound(levelIdx, b.dataset.mode);
+  else if (a === "smart") { view = "smart"; R = null; Q = null; renderSidebar(); renderStage(); }
+  else if (a === "start-smart") startSmart(b.dataset.mode);
   else if (a === "check") check();
   else if (a === "next") next();
   else if (a === "clear") { Q.sel.clear(); Q.wrongSel = null; renderStage(); }
   else if (a === "hear") hear(false);
   else if (a === "arp") hear(true);
-  else if (a === "end") { view = "intro"; R = null; Q = null; renderStage(); renderSidebar(); }
+  else if (a === "end") { view = R.smart ? "smart" : "intro"; R = null; Q = null; renderStage(); renderSidebar(); }
   else if (a === "pick") {
     const f = Q.q.fields.find((x) => x.id === b.dataset.f);
     const o = f.opts.find((x) => String(x.v) === b.dataset.v);

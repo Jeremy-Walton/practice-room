@@ -224,3 +224,11 @@ input[type="password"] { font: inherit; color: var(--ink); background: var(--bg)
 .mini .nm.tag { fill: var(--reveal); font-weight: 600; }
 .mini .st { fill: none; stroke: var(--muted); stroke-width: 1; }
 .mini .stt { font-size: 11px; font-weight: 600; fill: var(--accent); }
+
+/* Smart practice */
+.lvl.smart { margin-bottom: 6px; border-color: var(--accent); }
+.mastery { display: grid; gap: 8px; }
+.mrow { display: grid; grid-template-columns: minmax(120px, 220px) 1fr 44px; align-items: center; gap: 12px; font-size: 14px; }
+.mbar { height: 8px; border-radius: 4px; background: var(--sunk); overflow: hidden; }
+.mbar i { display: block; height: 100%; background: var(--accent); }
+.mpct { font: 500 12px var(--mono); color: var(--muted); text-align: right; }
