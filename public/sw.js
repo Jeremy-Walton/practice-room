@@ -1,6 +1,6 @@
 // Piano Drills service worker: network first (always fresh when online), cached copy when offline.
 // Bump VERSION when you deploy so old caches get cleaned up.
-const VERSION = "v10";
+const VERSION = "v11";
 const APP_CACHE = "piano-drills-" + VERSION;
 const FONT_CACHE = "piano-drills-fonts";
 const APP_FILES = [
