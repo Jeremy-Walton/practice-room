@@ -1,0 +1,24 @@
+name = "practice-room"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+
+# The app (index.html, service worker, icons) is served straight from ./public.
+# Anything under /api/ goes to src/worker.js.
+[assets]
+directory = "./public"
+binding = "ASSETS"
+run_worker_first = ["/api/*"]
+
+# Created in your account by Claude on 2026-10-09.
+[[d1_databases]]
+binding = "DB"
+database_name = "practice-room"
+database_id = "b64cd50d-f342-4b69-bf11-baba60d8c2b7"
+migrations_dir = "migrations"
+
+[[routes]]
+pattern = "piano.jeremywalton.dev"
+custom_domain = true
+
+[observability]
+enabled = true

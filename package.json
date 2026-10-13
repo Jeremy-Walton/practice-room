@@ -1,0 +1,14 @@
+{
+  "name": "practice-room",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Piano Drills: keyboard theory quizzes with D1 sync, served from piano.jeremywalton.dev",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:peek": "wrangler d1 execute practice-room --remote --command \"SELECT id, length(body) AS bytes, datetime(updated_at/1000,'unixepoch') AS changed FROM docs ORDER BY id\""
+  },
+  "devDependencies": {
+    "wrangler": "^4.40.0"
+  }
+}

@@ -1,0 +1,453 @@
+import { LEVELS } from "./levels.js";
+import { createKeyboard } from "./keyboard.js";
+import { play, setVolume } from "./audio.js";
+import { createInput } from "./input.js";
+import { createStore } from "./store.js";
+import { nameAt, octOf } from "./theory.js";
+
+const PASS = 0.9;
+const ROUND = 10;        // questions per round
+const DRILL_ROUND = 3;   // chord and scale drills per round (each covers every octave)
+
+const $ = (s) => document.querySelector(s);
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const pct = (x) => Math.round(x * 100) + "%";
+const ordinal = (n) => n + (n % 10 === 1 && n !== 11 ? "st" : n % 10 === 2 && n !== 12 ? "nd" : n % 10 === 3 && n !== 13 ? "rd" : "th");
+
+let midiOn = false;
+let midiText = "Off";
+const store = createStore({
+  onChange: () => { applySettings(); renderSidebar(); if (view !== "quiz") renderStage(); },
+  onStatus: (t) => { const el = $("#sync"); if (el) el.textContent = t; const s2 = $("#sync-status"); if (s2) s2.textContent = t; },
+});
+const S = () => store.settings;
+
+let view = "intro";   // intro | quiz | results
+let levelIdx = 0;
+let mode = "play";
+let R = null;         // the current round
+let Q = null;         // the current question's state
+let result = null;    // last finished round
+
+const kb = createKeyboard($("#keys"), { onKey });
+const input = createInput({
+  onNote: onKey,
+  onOctave: (o) => { $("#oct").textContent = o; },
+  onMidiStatus: (t) => { midiText = t; const el = $("#midi-status"); if (el) el.textContent = t; },
+});
+
+/* ---------------- progress helpers ---------------- */
+const rec = (i, m) => store.progress.levels[LEVELS[i].id]?.[m];
+const bestOf = (i) => Math.max(rec(i, "play")?.best || 0, rec(i, "name")?.best || 0);
+const unlocked = (i) => S().unlockAll || i === 0 || bestOf(i - 1) >= PASS;
+function nextUp() {
+  for (let i = 0; i < LEVELS.length; i++) if (unlocked(i) && bestOf(i) < PASS) return i;
+  for (let i = LEVELS.length - 1; i >= 0; i--) if (unlocked(i)) return i;
+  return 0;
+}
+
+/* ---------------- settings ---------------- */
+function applySettings() {
+  kb.setLabels(S().labels, S().spelling);
+  setVolume(S().volume);
+  input.setTyping(S().typing);
+  if (S().midi !== midiOn) { midiOn = S().midi; input.setMidi(midiOn); }
+}
+
+/* ---------------- sidebar ---------------- */
+function renderSidebar() {
+  const up = nextUp();
+  let html = "", group = "";
+  LEVELS.forEach((L, i) => {
+    if (L.group !== group) { group = L.group; html += `<div class="grp">${esc(group)}</div>`; }
+    const open = unlocked(i), p = rec(i, "play")?.best, n = rec(i, "name")?.best;
+    const passed = bestOf(i) >= PASS;
+    html += `<button class="lvl${i === levelIdx ? " cur" : ""}${open ? "" : " locked"}" data-act="level" data-i="${i}" ${i === levelIdx ? 'aria-current="true"' : ""}>
+      <span class="num">${String(i + 1).padStart(2, "0")}</span>
+      <span class="lt"><span class="ln">${esc(L.title)}</span>
+        <span class="ls">${open ? `${scoreChip("Play", p)}${scoreChip("Name", n)}` : "Locked"}</span></span>
+      <span class="st">${!open ? lockIcon() : passed ? '<span class="pass" title="Passed">✓</span>' : i === up ? '<span class="up">Next</span>' : ""}</span>
+    </button>`;
+  });
+  $("#levels").innerHTML = html;
+}
+const scoreChip = (label, v) => `<span class="chip${v >= PASS ? " good" : ""}">${label} ${v != null ? pct(v) : "–"}</span>`;
+const lockIcon = () => `<svg class="lock" viewBox="0 0 16 16" aria-label="Locked"><rect x="3" y="7" width="10" height="7" rx="1.5"/><path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" fill="none"/></svg>`;
+
+/* ---------------- stage ---------------- */
+function renderStage() {
+  const el = $("#stage");
+  if (view === "intro") el.innerHTML = introView();
+  else if (view === "quiz") el.innerHTML = quizView();
+  else el.innerHTML = resultsView();
+  renderMarks();
+}
+
+function introView() {
+  const L = LEVELS[levelIdx], open = unlocked(levelIdx);
+  const drillNote = L.id.startsWith("notes") || L.id.startsWith("oct") ? null : "Play it rounds are 3 drills. Each one walks the same chord or scale through every octave on the keyboard.";
+  return `<div class="intro">
+    <p class="eyebrow">${esc(L.group)} · Level ${levelIdx + 1} of ${LEVELS.length}</p>
+    <h1>${esc(L.title)}</h1>
+    <p class="lead">${esc(L.desc)}</p>
+    ${open ? `
+    <div class="modes">
+      <button class="mode" data-act="start" data-mode="play">
+        <span class="mt">Play it</span>
+        <span class="md">I name it, you find it on the keys.</span>
+        <span class="mb">Best ${rec(levelIdx, "play") ? pct(rec(levelIdx, "play").best) : "–"}</span>
+      </button>
+      <button class="mode" data-act="start" data-mode="name">
+        <span class="mt">Name it</span>
+        <span class="md">I mark the keys, you build the name.</span>
+        <span class="mb">Best ${rec(levelIdx, "name") ? pct(rec(levelIdx, "name").best) : "–"}</span>
+      </button>
+    </div>
+    <p class="muted small">${drillNote ? esc(drillNote) + " " : ""}Score ${pct(PASS)} or better in either mode to unlock the next level.</p>`
+    : `<div class="lockedbox">${lockIcon()}<div><b>Locked.</b> Score ${pct(PASS)} on level ${levelIdx} (${esc(LEVELS[levelIdx - 1].title)}) to open this one, or turn on <i>Unlock all levels</i> in Settings.</div></div>`}
+  </div>`;
+}
+
+function resultsView() {
+  const r = result, L = LEVELS[r.levelIdx];
+  return `<div class="intro results">
+    <p class="eyebrow">${esc(L.title)} · ${r.mode === "play" ? "Play it" : "Name it"}</p>
+    <h1 class="big">${pct(r.score)}</h1>
+    <p class="lead">${r.correct} of ${r.checks} right on the first try.${r.best ? " New best for this level." : ""}</p>
+    ${r.passed ? `<p class="pass-msg">✓ Passed.${r.unlockedNext ? ` Level ${r.levelIdx + 2}, ${esc(LEVELS[r.levelIdx + 1].title)}, is now open.` : ""}</p>`
+      : `<p class="muted">You need ${pct(PASS)} to pass. Misses are the ones worth repeating.</p>`}
+    ${r.misses.length ? `<div class="misses"><p class="eyebrow">To review</p><ul>${r.misses.slice(0, 8).map((m) => `<li>${esc(m)}</li>`).join("")}</ul></div>` : ""}
+    <div class="row">
+      <button class="primary" data-act="start" data-mode="${r.mode}">Go again</button>
+      ${r.passed && r.levelIdx + 1 < LEVELS.length ? `<button data-act="level" data-i="${r.levelIdx + 1}">Next level →</button>` : ""}
+      <button data-act="start" data-mode="${r.mode === "play" ? "name" : "play"}">Try ${r.mode === "play" ? "Name it" : "Play it"}</button>
+    </div>
+  </div>`;
+}
+
+function quizView() {
+  const L = LEVELS[R.levelIdx], q = Q.q;
+  const playMode = R.mode === "play";
+  const total = R.n;
+  const head = `<div class="qhead">
+      <span class="eyebrow">${esc(L.title)} · ${playMode ? "Play it" : "Name it"}</span>
+      <span class="qprog">Question ${R.i + 1} of ${total}</span>
+      <span class="qscore">${R.checks ? `${R.correct} of ${R.checks} right` : "No answers yet"}</span>
+      <button class="ghost small" data-act="end">End round</button>
+    </div>
+    <div class="bar"><i style="width:${((R.i + (Q.complete ? 1 : 0)) / total) * 100}%"></i></div>`;
+  const title = playMode ? q.title : q.nameTitle;
+  const sub = playMode ? q.sub : q.nameSub || "";
+  let body = `<h2 class="prompt">${esc(title)}</h2>${sub ? `<p class="sub">${esc(sub)}</p>` : ""}`;
+  if (playMode && q.drill) {
+    const done = Q.ts.filter((s) => s === "done" || s === "fixed").length;
+    body += `<div class="octs" aria-label="Octaves found">${q.targets.map((t, i) => {
+      const s = Q.ts[i], o = octOf(t.notes[0].m);
+      const cls = s === "done" ? "done" : s === "fixed" ? "fixed" : i === Q.reveal ? "rev" : "";
+      const mark = s === "done" ? "✓" : s === "fixed" ? "✓" : i === Q.reveal ? "!" : "";
+      return `<span class="oct ${cls}" title="${s === "done" ? "Found" : s === "fixed" ? "Found after a miss" : "Not yet"}">${mark ? `<b>${mark}</b>` : ""}Oct ${o}</span>`;
+    }).join("")}<span class="octn">${done} of ${q.targets.length} found</span></div>`;
+  }
+  if (!playMode) body += builderView();
+  const fb = Q.feedback ? `<p class="fb ${Q.feedback.kind}" role="status">${Q.feedback.html}</p>` : `<p class="fb" role="status"></p>`;
+  const ready = playMode ? Q.sel.size > 0 : builderReady();
+  const controls = `<div class="controls">
+      <button data-act="hear" title="Space">▶ Play ${playMode ? "selection" : "keys"}</button>
+      <button data-act="arp">Arpeggiate</button>
+      ${playMode ? `<button data-act="clear" title="Esc">Clear</button>` : ""}
+      <span class="spacer"></span>
+      ${Q.complete
+        ? `<button class="primary" data-act="next" title="Enter">${R.i + 1 < R.n ? "Next question" : "See results"} ⏎</button>`
+        : `<button class="primary" data-act="check" title="Enter" ${ready ? "" : "disabled"}>Check ⏎</button>`}
+    </div>`;
+  return `<div class="quiz">${head}<div class="qbody">${body}</div>${fb}${controls}</div>`;
+}
+
+function builderView() {
+  return `<div class="builder">${Q.q.fields.map((f) => `
+    <div class="field"><span class="flabel">${esc(f.label)}</span>
+      <div class="seg" role="group" aria-label="${esc(f.label)}">${f.opts.map((o) =>
+        `<button data-act="pick" data-f="${f.id}" data-v="${o.v}" aria-pressed="${Q.ans[f.id] === o.v}" ${Q.complete ? "disabled" : ""}>${esc(o.t)}</button>`).join("")}</div>
+    </div>`).join("")}</div>`;
+}
+const builderReady = () => Q.q.fields.every((f) => Q.ans[f.id] !== undefined);
+
+/* ---------------- keyboard marks ---------------- */
+function renderMarks() {
+  const marks = new Map();
+  const add = (m, k) => { if (!marks.has(m)) marks.set(m, []); marks.get(m).push(k); };
+  if (view === "quiz" && Q) {
+    const q = Q.q;
+    if (R.mode === "play") {
+      (q.given || []).forEach((m) => add(m, "given"));
+      if (q.drill) q.targets.forEach((t, i) => {
+        if (Q.ts[i] === "done") t.notes.forEach((x) => add(x.m, "found"));
+        if (Q.ts[i] === "fixed") t.notes.forEach((x) => add(x.m, "fixed"));
+      });
+      if (Q.reveal != null) q.targets[Q.reveal].notes.forEach((x) => add(x.m, "reveal"));
+      (Q.wrongSel || []).forEach((m) => add(m, "bad"));
+      if (Q.complete && !q.drill && Q.hit != null) q.targets[Q.hit].notes.forEach((x) => add(x.m, "ok"));
+      Q.sel.forEach((m) => add(m, "sel"));
+    } else {
+      q.show.forEach((x) => add(x.m, Q.complete ? (Q.judged ? "ok" : "reveal") : "show"));
+    }
+  }
+  kb.setMarks(marks);
+}
+
+/* ---------------- quiz flow ---------------- */
+function startRound(i, m) {
+  levelIdx = i; mode = m;
+  const L = LEVELS[i];
+  const probe = L.gen({ spelling: S().spelling });
+  const n = m === "play" && probe.drill ? DRILL_ROUND : ROUND;
+  R = { levelIdx: i, mode: m, n, i: -1, checks: 0, correct: 0, seen: new Set(), misses: [], started: Date.now() };
+  view = "quiz";
+  nextQuestion();
+  renderSidebar();
+}
+
+function nextQuestion() {
+  R.i++;
+  const L = LEVELS[R.levelIdx];
+  let q;
+  for (let tries = 0; tries < 40; tries++) {
+    q = L.gen({ spelling: S().spelling });
+    if (!R.seen.has(q.key)) break;
+  }
+  R.seen.add(q.key);
+  Q = { q, sel: new Set(), ts: q.targets.map(() => "pending"), reveal: null, wrongSel: null, missed: false,
+    complete: false, hit: null, ans: {}, judged: null, feedback: null };
+  q.fields.forEach((f) => { if (f.def !== undefined) Q.ans[f.id] = f.def; });
+  renderStage();
+  // Bring the interesting part of the keyboard into view on narrow windows.
+  const focus = R.mode === "play" ? q.given?.[0] : q.show[0]?.m;
+  if (focus) kb.scrollTo(focus);
+  if (R.mode === "name") setTimeout(() => play(q.show.map((x) => x.m), { arp: !!q.arp }), 120);
+}
+
+const namesOf = (notes) => notes.map((x) => nameAt(x.m, x.n, S().spelling)).join(" – ");
+const fb = (kind, html) => { Q.feedback = { kind, html }; };
+
+function nearest(indices, sel) {
+  const c = sel.length ? sel.reduce((a, b) => a + b, 0) / sel.length : 60;
+  let best = indices[0], bd = Infinity;
+  for (const i of indices) {
+    const t = Q.q.targets[i].notes;
+    const tc = t.reduce((a, x) => a + x.m, 0) / t.length;
+    const d = Math.abs(tc - c);
+    if (d < bd) { bd = d; best = i; }
+  }
+  return best;
+}
+
+function check() {
+  if (!Q || Q.complete) return;
+  const q = Q.q;
+  if (R.mode === "name") {
+    if (!builderReady()) return;
+    const ok = q.grade(Q.ans, S().spelling);
+    Q.complete = true; Q.judged = ok; R.checks++;
+    if (ok) { R.correct++; fb("ok", `<b>Correct.</b> ${esc(q.answer)}`); }
+    else { R.misses.push(q.answer); fb("bad", `<b>Not quite.</b> It's ${esc(q.answer)}`); }
+    play(q.show.map((x) => x.m), { arp: !!q.arp });
+    return renderStage();
+  }
+  const sel = [...Q.sel].sort((a, b) => a - b);
+  if (!sel.length) return;
+  const eq = (t) => t.notes.length === sel.length && t.notes.every((x, i) => x.m === sel[i]);
+
+  if (!q.drill) {
+    const hit = q.targets.findIndex(eq);
+    if (hit >= 0) {
+      Q.complete = true; Q.hit = hit; Q.reveal = null; Q.sel.clear();
+      if (!Q.missed) { R.checks++; R.correct++; fb("ok", `<b>Correct.</b> ${esc(namesOf(q.targets[hit].notes))}`); }
+      else fb("fixed", `That's it: ${esc(namesOf(q.targets[hit].notes))}. It counts as a miss, but now it's in your hands.`);
+      play(sel, { arp: !!q.arp });
+    } else {
+      if (!Q.missed) { Q.missed = true; R.checks++; R.misses.push(q.title); }
+      const n = nearest(q.targets.map((_, i) => i), sel);
+      Q.reveal = n; Q.wrongSel = sel; Q.sel.clear();
+      fb("bad", `<b>Not quite.</b> The answer is marked: ${esc(namesOf(q.targets[n].notes))}. Play it to continue.`);
+      play(q.targets[n].notes.map((x) => x.m), { arp: !!q.arp });
+    }
+    return renderStage();
+  }
+
+  // Drill: find the same chord or scale in every octave.
+  const idx = q.targets.findIndex(eq);
+  if (idx >= 0) {
+    const st = Q.ts[idx];
+    const o = octOf(q.targets[idx].notes[0].m);
+    if (st === "done" || st === "fixed") {
+      fb("info", `You already found the one in octave ${o}. Try a different octave.`);
+      Q.sel.clear();
+      return renderStage();
+    }
+    if (st === "missed") Q.ts[idx] = "fixed";
+    else { Q.ts[idx] = "done"; R.checks++; R.correct++; }
+    if (Q.reveal === idx) Q.reveal = null;
+    Q.sel.clear(); Q.wrongSel = null;
+    play(sel, { arp: !!q.arp });
+    const left = Q.ts.filter((s) => s === "pending" || s === "missed").length;
+    if (!left) {
+      Q.complete = true;
+      const misses = Q.ts.filter((s) => s === "fixed").length;
+      fb(misses ? "fixed" : "ok", misses ? `All ${q.targets.length} octaves found, ${misses} after a miss.` : `<b>All ${q.targets.length} octaves, first try.</b>`);
+    } else if (Q.reveal != null) {
+      fb("info", `Octave ${o} ✓. Now play the marked one in octave ${octOf(q.targets[Q.reveal].notes[0].m)}.`);
+    } else {
+      fb("ok", `<b>Octave ${o} ✓</b> ${esc(namesOf(q.targets[idx].notes))} · ${left} to go.`);
+    }
+    return renderStage();
+  }
+  if (Q.reveal != null) {
+    Q.wrongSel = sel; Q.sel.clear();
+    fb("bad", `Not yet. Play the marked keys in octave ${octOf(q.targets[Q.reveal].notes[0].m)}: ${esc(namesOf(q.targets[Q.reveal].notes))}.`);
+    play(q.targets[Q.reveal].notes.map((x) => x.m), { arp: !!q.arp });
+    return renderStage();
+  }
+  const pending = Q.ts.map((s, i) => (s === "pending" ? i : -1)).filter((i) => i >= 0);
+  const n = nearest(pending, sel);
+  Q.ts[n] = "missed"; R.checks++; Q.reveal = n; Q.wrongSel = sel; Q.sel.clear();
+  const o = octOf(q.targets[n].notes[0].m);
+  R.misses.push(`${q.title.replace(/^Play /, "")}, octave ${o}`);
+  fb("bad", `<b>Not quite.</b> Here it is in octave ${o}: ${esc(namesOf(q.targets[n].notes))}. Play it to continue.`);
+  play(q.targets[n].notes.map((x) => x.m), { arp: !!q.arp });
+  renderStage();
+}
+
+function next() {
+  if (!Q?.complete) return;
+  if (R.i + 1 < R.n) return nextQuestion();
+  finishRound();
+}
+
+function finishRound() {
+  const L = LEVELS[R.levelIdx];
+  const score = R.checks ? R.correct / R.checks : 0;
+  const wasOpen = R.levelIdx + 1 < LEVELS.length && unlocked(R.levelIdx + 1);
+  const p = store.progress;
+  const lv = (p.levels[L.id] ||= {});
+  const m = (lv[R.mode] ||= { best: 0, rounds: 0, lastAt: 0 });
+  const best = score > m.best;
+  m.best = Math.max(m.best, score); m.rounds++; m.lastAt = Date.now();
+  p.history.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 7), at: Date.now(), level: L.id, mode: R.mode, correct: R.correct, total: R.checks });
+  store.saveProgress();
+  result = { levelIdx: R.levelIdx, mode: R.mode, score, correct: R.correct, checks: R.checks, passed: score >= PASS, best,
+    unlockedNext: !wasOpen && R.levelIdx + 1 < LEVELS.length && unlocked(R.levelIdx + 1), misses: R.misses };
+  view = "results"; R = null; Q = null;
+  renderSidebar(); renderStage();
+}
+
+/* ---------------- input ---------------- */
+function onKey(m) {
+  kb.flash(m);
+  play([m]);
+  if (view !== "quiz" || !Q || R.mode !== "play" || Q.complete) return;
+  if (Q.sel.has(m)) Q.sel.delete(m); else Q.sel.add(m);
+  Q.wrongSel = null;
+  if (Q.feedback && Q.feedback.kind !== "bad" && Q.feedback.kind !== "info") Q.feedback = null;
+  renderMarks();
+  const btn = $('[data-act="check"]');
+  if (btn) btn.disabled = Q.sel.size === 0;
+}
+
+function hear(arp) {
+  if (view !== "quiz" || !Q) return;
+  const ms = R.mode === "play" ? [...Q.sel] : Q.q.show.map((x) => x.m);
+  const fallback = R.mode === "play" && Q.reveal != null ? Q.q.targets[Q.reveal].notes.map((x) => x.m) : [];
+  play(ms.length ? ms : fallback, { arp: arp || !!Q.q.arp });
+}
+
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-act]");
+  if (!b || b.disabled) return;
+  const a = b.dataset.act;
+  if (a === "level") { levelIdx = +b.dataset.i; view = "intro"; R = null; Q = null; renderSidebar(); renderStage(); }
+  else if (a === "start") startRound(levelIdx, b.dataset.mode);
+  else if (a === "check") check();
+  else if (a === "next") next();
+  else if (a === "clear") { Q.sel.clear(); Q.wrongSel = null; renderStage(); }
+  else if (a === "hear") hear(false);
+  else if (a === "arp") hear(true);
+  else if (a === "end") { view = "intro"; R = null; Q = null; renderStage(); renderSidebar(); }
+  else if (a === "pick") {
+    const f = Q.q.fields.find((x) => x.id === b.dataset.f);
+    const o = f.opts.find((x) => String(x.v) === b.dataset.v);
+    Q.ans[f.id] = o.v;
+    renderStage();
+  }
+  else if (a === "settings") openSettings();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.target.closest("input, textarea, select, dialog")) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if (view !== "quiz" || !Q) return;
+  if (e.key === "Enter") { e.preventDefault(); Q.complete ? next() : check(); }
+  else if (e.key === " ") { e.preventDefault(); hear(false); }
+  else if (e.key === "Escape" && R.mode === "play") { Q.sel.clear(); Q.wrongSel = null; renderStage(); }
+});
+
+/* ---------------- settings dialog ---------------- */
+function openSettings() {
+  const d = $("#settings");
+  const s = S();
+  d.innerHTML = `<form method="dialog" class="settings">
+    <div class="row spread"><h2>Settings</h2><button class="ghost" value="close" aria-label="Close">✕</button></div>
+    <fieldset><legend>Note spelling</legend>
+      <label><input type="radio" name="spelling" value="theory" ${s.spelling === "theory" ? "checked" : ""}> Theory-correct <span class="muted">F♯ in D major, E♯ and B♯ where they belong</span></label>
+      <label><input type="radio" name="spelling" value="simple" ${s.spelling === "simple" ? "checked" : ""}> Simple <span class="muted">Everyday names; enharmonic answers count as right</span></label>
+    </fieldset>
+    <fieldset><legend>Keyboard</legend>
+      <label><input type="checkbox" id="set-labels" ${s.labels ? "checked" : ""}> Show note names on the keys</label>
+      <label><input type="checkbox" id="set-typing" ${s.typing ? "checked" : ""}> Play with the computer keyboard <span class="muted">A S D F G H J K L ; ' are white keys, W E T Y U O P are black. 1–8 set the octave.</span></label>
+      <label><input type="checkbox" id="set-midi" ${s.midi ? "checked" : ""}> Use a MIDI controller <span class="muted" id="midi-status">${esc(midiText)}</span></label>
+      <label class="vol">Volume <input type="range" id="set-volume" min="0" max="1" step="0.05" value="${s.volume}"></label>
+    </fieldset>
+    <fieldset><legend>Levels</legend>
+      <label><input type="checkbox" id="set-unlock" ${s.unlockAll ? "checked" : ""}> Unlock all levels <span class="muted">Skip ahead without passing</span></label>
+    </fieldset>
+    <fieldset><legend>Sync between computers</legend>
+      ${store.connected ? `<p class="muted small">Connected. Progress and settings sync automatically.</p>
+        <p class="small">Status: <span id="sync-status">${esc(store.status)}</span></p>
+        <div class="row"><button type="button" id="sync-now">Sync now</button><button type="button" class="ghost" id="sync-off">Disconnect this browser</button></div>`
+      : `<p class="muted small">Enter the sync key you set with <code>wrangler secret put SYNC_KEY</code>.</p>
+        <div class="row"><input type="password" id="sync-key" placeholder="Sync key" autocomplete="current-password"><button type="button" class="primary" id="sync-on">Connect</button></div>
+        <p class="small" id="sync-msg" role="status"></p>`}
+    </fieldset>
+  </form>`;
+  d.showModal();
+  d.querySelectorAll('input[name="spelling"]').forEach((r) => r.addEventListener("change", () => { s.spelling = r.value; save(); }));
+  d.querySelector("#set-labels").addEventListener("change", (e) => { s.labels = e.target.checked; save(); });
+  d.querySelector("#set-typing").addEventListener("change", (e) => { s.typing = e.target.checked; save(); });
+  d.querySelector("#set-midi").addEventListener("change", (e) => { s.midi = e.target.checked; save(); });
+  d.querySelector("#set-volume").addEventListener("input", (e) => { s.volume = +e.target.value; setVolume(s.volume); });
+  d.querySelector("#set-volume").addEventListener("change", (e) => { s.volume = +e.target.value; save(); play([60, 64, 67]); });
+  d.querySelector("#set-unlock").addEventListener("change", (e) => { s.unlockAll = e.target.checked; save(); renderSidebar(); if (view === "intro") renderStage(); });
+  const on = d.querySelector("#sync-on");
+  if (on) on.addEventListener("click", async () => {
+    const k = d.querySelector("#sync-key").value.trim();
+    const msg = d.querySelector("#sync-msg");
+    if (!k) return d.querySelector("#sync-key").focus();
+    on.disabled = true; on.textContent = "Connecting…";
+    try { await store.connect(k); openSettings(); renderSidebar(); if (view !== "quiz") renderStage(); }
+    catch (err) { on.disabled = false; on.textContent = "Connect"; msg.textContent = err.status === 401 ? "That sync key doesn't match." : "Couldn't reach the server. Check your connection."; }
+  });
+  const now = d.querySelector("#sync-now");
+  if (now) now.addEventListener("click", () => store.syncNow());
+  const off = d.querySelector("#sync-off");
+  if (off) off.addEventListener("click", () => { store.disconnect(); openSettings(); });
+  function save() { store.saveSettings(); applySettings(); }
+}
+
+/* ---------------- boot ---------------- */
+applySettings();
+levelIdx = nextUp();
+renderSidebar();
+renderStage();
+if ("serviceWorker" in navigator) window.addEventListener("load", () => navigator.serviceWorker.register("/sw.js").catch(() => {}));
+
+// Read-only peek at the current state, for automated tests.
+window.__pd = { state: () => ({ view, levelIdx, R, Q }) };
