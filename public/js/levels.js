@@ -1,11 +1,11 @@
 // The level ladder: each level generates questions that work both ways.
 //   Play it: the prompt names something; you click the keys (targets).
 //   Name it: keys are shown; you build the name from parts (fields + grade).
-// Drill questions have one target per octave and you find all of them.
+// A chord or scale has one target per octave and any one of them counts. (`drill: true` would require all of them.)
 
 import {
   N, spell, pc, mod12, isBlack, octOf, LOW, HIGH, LETTERS, midiOf, simpleName,
-  QUALITIES, INV_SHORT, up, chordTones, orderedTones, placements, chordSymbol, chordLongName, sameVoicing,
+  QUALITIES, INV_SHORT, INVERSIONS, up, chordTones, orderedTones, placements, chordSymbol, chordLongName, sameVoicing,
   SCALES, scaleTones, scalePlacements, diatonicTriad, numeral, maxAcc, display,
 } from "./theory.js";
 
@@ -23,7 +23,7 @@ const F = {
   acc: (label = "Accidental") => ({ id: "acc", label, def: 0, opts: [{ v: -1, t: "♭" }, { v: 0, t: "♮" }, { v: 1, t: "♯" }] }),
   octave: () => ({ id: "octave", label: "Octave", opts: [0, 1, 2, 3, 4, 5, 6, 7, 8].map((v) => ({ v, t: String(v) })) }),
   quality: (qs) => ({ id: "q", label: "Quality", opts: qs.map((v) => ({ v, t: qualityLabel(v) })) }),
-  inv: (n) => ({ id: "inv", label: "Inversion", def: 0, opts: INV_SHORT.slice(0, n).map((t, v) => ({ v, t: v ? t + " inversion" : "Root position" })) }),
+  inv: (n) => ({ id: "inv", label: "Inversion", def: 0, opts: INV_SHORT.slice(0, n).map((t, v) => ({ v, t: v ? `${t} inversion · ${BASS_DEGREE[v]} in bass` : "Root position" })) }),
   bassLetter: () => ({ id: "bl", label: "Bass note", opts: [...LETTERS].map((t, v) => ({ v, t })) }),
   bassAcc: () => ({ id: "ba", label: "Bass accidental", def: 0, opts: [{ v: -1, t: "♭" }, { v: 0, t: "♮" }, { v: 1, t: "♯" }] }),
   scale: (types) => ({ id: "scale", label: "Scale", opts: types.map((v) => ({ v, t: SCALES[v].word })) }),
@@ -34,6 +34,9 @@ function qualityLabel(q) {
   return { maj: "Major", min: "Minor", dim: "Diminished °", aug: "Augmented +", sus2: "sus2", sus4: "sus4",
     maj7: "maj7", dom7: "7", min7: "m7", hdim7: "m7♭5", dim7: "°7" }[q];
 }
+const BASS_DEGREE = ["root", "3rd", "5th", "7th"];
+const DEGREE_NAME = { 0: "root", 1: "2nd", 2: "3rd", 3: "4th", 4: "5th", 6: "7th" };
+const STEP_WORD = { 1: "H", 2: "W", 3: "W+H" };
 const ansNote = (ans) => ({ l: ans.letter, a: ans.acc ?? 0 });
 
 const notesText = (notes, spelling) => notes.map((x) => display(x.n, x.m, spelling)).join(" – ");
@@ -67,11 +70,14 @@ function chordQuestion(c, { fields, title, sub, spelling, prefix = "" }) {
   const list = placements(tones);
   const show = middlePlacement(list);
   const sym = chordSymbol(c);
+  const iv = QUALITIES[c.q].iv;
+  const degrees = tones.map((_, k) => DEGREE_NAME[iv[((c.inv || 0) + k) % iv.length][0]]);
+  const order = degrees.join(", ");
+  const how = c.inv ? `${INVERSIONS[c.inv]}: ${degrees[0]} in the bass` : "Root position";
   return {
     key: sym + c.q + (c.inv || 0),
-    drill: true,
     title: title || `Play ${chordLongName(c)}`,
-    sub: sub || "Close position, in every octave on the keyboard",
+    sub: sub || `${how} (low to high: ${order}) · any octave`,
     targets: list.map((v) => ({ notes: v })),
     nameTitle: `${prefix}Name this chord`,
     nameSub: "Build the name from its parts",
@@ -200,10 +206,12 @@ export const LEVELS = [
     },
   },
   scaleLevel("scale-major", "Major scales", "All twelve major scales, one octave up from the root.", ["major"]),
-  scaleLevel("scale-natural", "Natural minor scales", "The relative minor of each major key: same notes, starting on the 6th.", ["natural"]),
-  scaleLevel("scale-hm", "Harmonic & melodic minor", "Harmonic raises the 7th. Melodic (ascending) raises the 6th and 7th.", ["harmonic", "melodic"]),
+  chordLevel("tri-root", "Triads", "Major & minor triads", "Root, 3rd and 5th. Major has a 4-then-3 half-step pattern; minor swaps it to 3-then-4.", ["maj", "min"], [0], 0),
+  chordLevel("tri-1st", "Triads", "1st inversion", "Move the root from the bottom to the top. The 3rd is now the lowest note.", ["maj", "min"], [1], 3),
+  chordLevel("tri-2nd", "Triads", "2nd inversion", "Move the root and the 3rd to the top. The 5th is now the lowest note.", ["maj", "min"], [2], 3),
+  chordLevel("tri-inv", "Triads", "Triad inversions mixed", "Root position, 1st inversion (3rd in the bass) and 2nd inversion (5th in the bass), all mixed together.", ["maj", "min"], [0, 1, 2], 3),
   {
-    id: "key-major", group: "Chords in a key", title: "Triads in major keys",
+    id: "key-major", group: "Triads in a key", title: "Triads in major keys",
     desc: "I ii iii IV V vi vii°: the seven triads built on a major scale.",
     gen({ spelling }) {
       let key, sc;
@@ -214,7 +222,7 @@ export const LEVELS = [
       const c = { root: t.root, q: t.q, inv: 0 };
       const q = chordQuestion(c, {
         spelling, fields: [F.numeral(["I", "ii", "iii", "IV", "V", "vi", "vii°"])],
-        title: `In ${spell(key)} major, play the ${num} chord`, sub: "Root position, in every octave",
+        title: `In ${spell(key)} major, play the ${num} chord`, sub: "Root position, in any octave",
         prefix: `In ${spell(key)} major: `,
       });
       q.key = spell(key) + num;
@@ -224,8 +232,12 @@ export const LEVELS = [
       return q;
     },
   },
+  chordLevel("tri-dimaug", "More chords", "Diminished & augmented", "Stacked minor 3rds and stacked major 3rds, with their inversions.", ["dim", "aug"], [0, 1, 2], 3),
+  chordLevel("sus", "More chords", "Sus2 & sus4", "The 3rd replaced by the 2nd or the 4th. Root position.", ["sus2", "sus4"], [0], 0),
+  scaleLevel("scale-natural", "Natural minor scales", "The relative minor of each major key: same notes, starting on the 6th.", ["natural"]),
+  scaleLevel("scale-hm", "Harmonic & melodic minor", "Harmonic raises the 7th. Melodic (ascending) raises the 6th and 7th.", ["harmonic", "melodic"]),
   {
-    id: "key-minor", group: "Chords in a key", title: "Triads in minor keys",
+    id: "key-minor", group: "Minor keys", title: "Triads in minor keys",
     desc: "i ii° III iv v VI VII, plus V and vii° borrowed from harmonic minor.",
     gen({ spelling }) {
       for (;;) {
@@ -242,7 +254,7 @@ export const LEVELS = [
         const q = chordQuestion(c, {
           spelling, fields: [F.numeral(["i", "ii°", "III", "iv", "v", "V", "VI", "VII", "vii°"])],
           title: `In ${spell(key)} minor, play the ${num} chord`,
-          sub: fromHarm ? "From harmonic minor (raised 7th) · root position, every octave" : "Root position, in every octave",
+          sub: fromHarm ? "From harmonic minor (raised 7th) · root position, any octave" : "Root position, in any octave",
         });
         q.key = spell(key) + "m" + num;
         q.nameTitle = `In ${spell(key)} minor, which chord is this?`;
@@ -252,9 +264,6 @@ export const LEVELS = [
       }
     },
   },
-  chordLevel("tri-inv", "Triads", "Major & minor inversions", "Root position, 1st inversion (3rd in the bass) and 2nd inversion (5th in the bass).", ["maj", "min"], [0, 1, 2], 3),
-  chordLevel("tri-dimaug", "Triads", "Diminished & augmented", "Stacked minor 3rds and stacked major 3rds, with their inversions.", ["dim", "aug"], [0, 1, 2], 3),
-  chordLevel("sus", "Beyond triads", "Sus2 & sus4", "The 3rd replaced by the 2nd or the 4th. Root position.", ["sus2", "sus4"], [0], 0),
   chordLevel("sev-root", "Beyond triads", "Seventh chords", "maj7, 7, m7, m7♭5 and °7 in root position.", ["maj7", "dom7", "min7", "hdim7", "dim7"], [0], 0),
   chordLevel("sev-inv", "Beyond triads", "Seventh chord inversions", "1st, 2nd and 3rd inversion: the 3rd, 5th or 7th in the bass.", ["maj7", "dom7", "min7", "hdim7", "dim7"], [1, 2, 3], 4),
   {
@@ -275,7 +284,7 @@ export const LEVELS = [
         const bassName = spell(tones[0]);
         const q2 = chordQuestion(c, {
           spelling, fields: [F.letter("Chord root"), F.acc(), F.quality(["maj", "min"]), F.bassLetter(), F.bassAcc()],
-          title: `Play ${sym}`, sub: `${spell(root)} ${QUALITIES[q].word} over ${bassName} in the bass · every octave`,
+          title: `Play ${sym}`, sub: `${spell(root)} ${QUALITIES[q].word} over ${bassName} in the bass · any octave`,
         });
         q2.key = sym;
         return q2;
@@ -298,7 +307,7 @@ function chordLevel(id, group, title, desc, qs, invs, invFields) {
 
 function scaleLevel(id, title, desc, types) {
   return {
-    id, group: "Scales", title, desc, arp: true,
+    id, group: types.includes("major") ? "Major scale" : "Minor scales", title, desc, arp: true,
     gen({ spelling }) {
       let root, type, tones;
       const pool = types.includes("major") ? MAJ_ROOTS : MIN_ROOTS;
@@ -309,8 +318,8 @@ function scaleLevel(id, title, desc, types) {
       const fields = [F.letter("Starting note"), F.acc()];
       if (types.length > 1) fields.push(F.scale(types));
       return {
-        key: spell(root) + type, drill: true, arp: true,
-        title: `Play ${spell(root)} ${word}`, sub: `One octave up from ${spell(root)} (8 notes), in every octave`,
+        key: spell(root) + type, arp: true,
+        title: `Play ${spell(root)} ${word}`, sub: `Pattern ${SCALES[type].steps.map((x) => STEP_WORD[x]).join(" ")} · 8 notes up from ${spell(root)}, any octave`,
         targets: list.map((v) => ({ notes: v })),
         nameTitle: types.length > 1 ? "Name this scale" : `Name this ${word} scale`, nameSub: "It starts on the lowest marked key",
         show, fields,

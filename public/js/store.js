@@ -6,7 +6,7 @@ const LS = {
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
 };
 
-export const DEFAULT_SETTINGS = { spelling: "theory", labels: false, volume: 0.7, unlockAll: false, typing: true, midi: false };
+export const DEFAULT_SETTINGS = { spelling: "theory", labels: false, volume: 0.7, unlockAll: false, typing: true, midi: false, auto: true };
 export const emptyProgress = () => ({ levels: {}, history: [] });
 const clone = (o) => JSON.parse(JSON.stringify(o));
 const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);

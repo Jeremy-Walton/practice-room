@@ -1,4 +1,4 @@
-// Ways to play besides clicking: the computer keyboard and Web MIDI. Both call onNote(midi).
+// Ways to play besides clicking: the computer keyboard and Web MIDI. They report note on, note off and the sustain pedal.
 import { LOW, HIGH } from "./theory.js";
 
 // Physical key codes, so the layout works on any keyboard language.
@@ -8,9 +8,10 @@ const SEMITONE = {
   KeyK: 12, KeyO: 13, KeyL: 14, KeyP: 15, Semicolon: 16, Quote: 17,
 };
 
-export function createInput({ onNote, onOctave, onMidiStatus }) {
+export function createInput({ onNote, onNoteOff, onPedal, onOctave, onMidiStatus }) {
   let typing = true;
   let octave = 4;
+  const down = new Map(); // key code -> the note it started, so a late octave change can't strand a note
   let access = null;
 
   const inField = (t) => t.closest && t.closest("input, textarea, select, dialog");
@@ -24,13 +25,24 @@ export function createInput({ onNote, onOctave, onMidiStatus }) {
     const m = 12 * (octave + 1) + s;
     if (m < LOW || m > HIGH) return;
     e.preventDefault();
-    onNote(m);
+    down.set(e.code, m);
+    onNote(m, 0.7, "typing");
+  });
+
+  document.addEventListener("keyup", (e) => {
+    if (!down.has(e.code)) return;
+    onNoteOff(down.get(e.code));
+    down.delete(e.code);
   });
 
   function onMessage(e) {
     const [status, note, vel] = e.data;
-    if ((status & 0xf0) !== 0x90 || !vel) return; // note-on only; note-off and velocity 0 are ignored
-    if (note >= LOW && note <= HIGH) onNote(note);
+    const type = status & 0xf0;
+    if (type === 0xb0 && note === 64) return onPedal(vel >= 64);
+    if (type !== 0x80 && type !== 0x90) return;
+    if (note < LOW || note > HIGH) return;
+    if (type === 0x90 && vel > 0) onNote(note, vel / 127, "midi");
+    else onNoteOff(note); // note-on with velocity 0 means note-off
   }
 
   function report() {

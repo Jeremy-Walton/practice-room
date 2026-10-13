@@ -65,8 +65,13 @@ export function createKeyboard(root, { onKey }) {
     setTimeout(() => b.classList.remove("down"), 140);
   }
 
+  function hold(m, on) {
+    keys.get(m)?.classList.toggle("down", on);
+  }
+
   return {
     flash,
+    hold,
     // marks: Map(midi -> array of mark names)
     setMarks(marks) {
       for (const [m, b] of keys) {

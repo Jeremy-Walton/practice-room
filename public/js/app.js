@@ -1,13 +1,14 @@
 import { LEVELS } from "./levels.js";
 import { createKeyboard } from "./keyboard.js";
-import { play, setVolume } from "./audio.js";
+import { play, noteOn, noteOff, pedal, setVolume } from "./audio.js";
+import { lessonHTML } from "./lessons.js";
 import { createInput } from "./input.js";
 import { createStore } from "./store.js";
 import { nameAt, octOf } from "./theory.js";
 
 const PASS = 0.9;
 const ROUND = 10;        // questions per round
-const DRILL_ROUND = 3;   // chord and scale drills per round (each covers every octave)
+const DRILL_ROUND = 3;   // questions per round for levels that set `drill: true`
 
 const $ = (s) => document.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -31,7 +32,9 @@ let result = null;    // last finished round
 
 const kb = createKeyboard($("#keys"), { onKey });
 const input = createInput({
-  onNote: onKey,
+  onNote: noteIn,
+  onNoteOff: (m) => { kb.hold(m, false); noteOff(m); },
+  onPedal: pedal,
   onOctave: (o) => { $("#oct").textContent = o; },
   onMidiStatus: (t) => { midiText = t; const el = $("#midi-status"); if (el) el.textContent = t; },
 });
@@ -85,12 +88,11 @@ function renderStage() {
 
 function introView() {
   const L = LEVELS[levelIdx], open = unlocked(levelIdx);
-  const drillNote = L.id.startsWith("notes") || L.id.startsWith("oct") ? null : "Play it rounds are 3 drills. Each one walks the same chord or scale through every octave on the keyboard.";
   return `<div class="intro">
     <p class="eyebrow">${esc(L.group)} · Level ${levelIdx + 1} of ${LEVELS.length}</p>
     <h1>${esc(L.title)}</h1>
     <p class="lead">${esc(L.desc)}</p>
-    ${open ? `
+    ${open ? `${lessonHTML(L.id, !rec(levelIdx, "play") && !rec(levelIdx, "name"))}
     <div class="modes">
       <button class="mode" data-act="start" data-mode="play">
         <span class="mt">Play it</span>
@@ -103,7 +105,7 @@ function introView() {
         <span class="mb">Best ${rec(levelIdx, "name") ? pct(rec(levelIdx, "name").best) : "–"}</span>
       </button>
     </div>
-    <p class="muted small">${drillNote ? esc(drillNote) + " " : ""}Score ${pct(PASS)} or better in either mode to unlock the next level.</p>`
+    <p class="muted small">Score ${pct(PASS)} or better in either mode to unlock the next level.</p>`
     : `<div class="lockedbox">${lockIcon()}<div><b>Locked.</b> Score ${pct(PASS)} on level ${levelIdx} (${esc(LEVELS[levelIdx - 1].title)}) to open this one, or turn on <i>Unlock all levels</i> in Settings.</div></div>`}
   </div>`;
 }
@@ -263,7 +265,7 @@ function check() {
       Q.complete = true; Q.hit = hit; Q.reveal = null; Q.sel.clear();
       if (!Q.missed) { R.checks++; R.correct++; fb("ok", `<b>Correct.</b> ${esc(namesOf(q.targets[hit].notes))}`); }
       else fb("fixed", `That's it: ${esc(namesOf(q.targets[hit].notes))}. It counts as a miss, but now it's in your hands.`);
-      play(sel, { arp: !!q.arp });
+      if (!Q.auto) play(sel, { arp: !!q.arp });
     } else {
       if (!Q.missed) { Q.missed = true; R.checks++; R.misses.push(q.title); }
       const n = nearest(q.targets.map((_, i) => i), sel);
@@ -288,7 +290,7 @@ function check() {
     else { Q.ts[idx] = "done"; R.checks++; R.correct++; }
     if (Q.reveal === idx) Q.reveal = null;
     Q.sel.clear(); Q.wrongSel = null;
-    play(sel, { arp: !!q.arp });
+    if (!Q.auto) play(sel, { arp: !!q.arp });
     const left = Q.ts.filter((s) => s === "pending" || s === "missed").length;
     if (!left) {
       Q.complete = true;
@@ -319,6 +321,7 @@ function check() {
 
 function next() {
   if (!Q?.complete) return;
+  clearTimeout(Q.advance);
   if (R.i + 1 < R.n) return nextQuestion();
   finishRound();
 }
@@ -344,6 +347,10 @@ function finishRound() {
 function onKey(m) {
   kb.flash(m);
   play([m]);
+  toggleSel(m);
+}
+
+function toggleSel(m) {
   if (view !== "quiz" || !Q || R.mode !== "play" || Q.complete) return;
   if (Q.sel.has(m)) Q.sel.delete(m); else Q.sel.add(m);
   Q.wrongSel = null;
@@ -351,6 +358,30 @@ function onKey(m) {
   renderMarks();
   const btn = $('[data-act="check"]');
   if (btn) btn.disabled = Q.sel.size === 0;
+}
+
+// A controller or the computer keyboard: notes add up, and a full answer is checked and advanced on its own.
+function noteIn(m, vel) {
+  kb.hold(m, true);
+  noteOn(m, vel);
+  if (!S().auto) return toggleSel(m);
+  if (view !== "quiz" || !Q || R.mode !== "play" || Q.complete) return;
+  Q.auto = true;
+  Q.sel.add(m);
+  Q.wrongSel = null;
+  if (Q.feedback && Q.feedback.kind !== "bad" && Q.feedback.kind !== "info") Q.feedback = null;
+  if (Q.sel.size < Q.q.targets[0].notes.length) {
+    renderMarks();
+    const btn = $('[data-act="check"]');
+    if (btn) btn.disabled = false;
+    return;
+  }
+  check();
+  if (Q.complete) {
+    const t = Q;
+    const hadMiss = t.missed || t.ts.includes("fixed");
+    t.advance = setTimeout(() => { if (Q === t) next(); }, hadMiss ? 1600 : 900);
+  }
 }
 
 function hear(arp) {
@@ -404,6 +435,7 @@ function openSettings() {
       <label><input type="checkbox" id="set-labels" ${s.labels ? "checked" : ""}> Show note names on the keys</label>
       <label><input type="checkbox" id="set-typing" ${s.typing ? "checked" : ""}> Play with the computer keyboard <span class="muted">A S D F G H J K L ; ' are white keys, W E T Y U O P are black. 1–8 set the octave.</span></label>
       <label><input type="checkbox" id="set-midi" ${s.midi ? "checked" : ""}> Use a MIDI controller <span class="muted" id="midi-status">${esc(midiText)}</span></label>
+      <label><input type="checkbox" id="set-auto" ${s.auto ? "checked" : ""}> Hands-free play <span class="muted">With MIDI or the computer keyboard, a full answer is checked and the next question comes up by itself. Esc clears a wrong note.</span></label>
       <label class="vol">Volume <input type="range" id="set-volume" min="0" max="1" step="0.05" value="${s.volume}"></label>
     </fieldset>
     <fieldset><legend>Levels</legend>
@@ -422,6 +454,7 @@ function openSettings() {
   d.querySelectorAll('input[name="spelling"]').forEach((r) => r.addEventListener("change", () => { s.spelling = r.value; save(); }));
   d.querySelector("#set-labels").addEventListener("change", (e) => { s.labels = e.target.checked; save(); });
   d.querySelector("#set-typing").addEventListener("change", (e) => { s.typing = e.target.checked; save(); });
+  d.querySelector("#set-auto").addEventListener("change", (e) => { s.auto = e.target.checked; save(); });
   d.querySelector("#set-midi").addEventListener("change", (e) => { s.midi = e.target.checked; save(); });
   d.querySelector("#set-volume").addEventListener("input", (e) => { s.volume = +e.target.value; setVolume(s.volume); });
   d.querySelector("#set-volume").addEventListener("change", (e) => { s.volume = +e.target.value; save(); play([60, 64, 67]); });

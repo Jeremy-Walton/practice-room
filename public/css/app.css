@@ -202,3 +202,25 @@ input[type="password"] { font: inherit; color: var(--ink); background: var(--bg)
   .stage { padding: 24px 28px; }
   .prompt { font-size: 32px; }
 }
+
+/* Lesson card */
+.lesson { background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 4px 20px 16px; }
+.lesson summary { cursor: pointer; padding: 12px 0; font: 600 13px var(--mono); letter-spacing: .06em; text-transform: uppercase; color: var(--accent); }
+.lesson ul { margin: 0 0 8px; padding-left: 18px; display: grid; gap: 4px; max-width: 62ch; }
+.demos { display: flex; flex-wrap: wrap; gap: 18px 28px; margin-top: 12px; }
+.demo { margin: 0; }
+.demo.dim { opacity: .4; }
+.demo figcaption { margin-top: 2px; font-size: 13px; color: var(--muted); }
+.mini { display: block; max-width: 100%; height: auto; }
+.mini .wk { fill: var(--ivory); stroke: #b9bdb4; }
+.mini .bk { fill: var(--ebony); }
+.mini .dot { fill: var(--sel); stroke: #fff; stroke-width: 1.5; }
+.mini .dot.bass { fill: var(--reveal); }
+.mini text { text-anchor: middle; font-family: var(--mono); fill: var(--ink); }
+.mini .dg { fill: #fff; font-weight: 600; }
+.mini .dg.bass { fill: #1b211e; }
+.mini .nm { font-size: 10px; }
+.mini .nm.alt { fill: var(--muted); }
+.mini .nm.tag { fill: var(--reveal); font-weight: 600; }
+.mini .st { fill: none; stroke: var(--muted); stroke-width: 1; }
+.mini .stt { font-size: 11px; font-weight: 600; fill: var(--accent); }

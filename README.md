@@ -20,7 +20,7 @@ public/
   js/levels.js     the 16 levels: question generators and grading
   js/theory.js     note spelling, chords, scales, inversions
   js/keyboard.js   the 88-key keyboard
-  js/audio.js      synthesized piano sound
+  js/audio.js      piano sound: sampled grand (public/samples), synth fallback
   js/store.js      local storage + sync client
   sw.js            offline support (bump VERSION on each deploy)
 src/worker.js      sync API: /api/sync, /api/docs, /api/ping
@@ -52,3 +52,7 @@ Add an entry to `LEVELS` in `public/js/levels.js`. Its `gen()` returns:
 - `show`, `fields` and `grade()` for Name it
 
 Use `chordQuestion()` for anything chord-shaped. The keyboard input goes through one function (`onKey` in `app.js`), so MIDI input can feed the same path later.
+
+## Credits
+
+Piano samples: Salamander Grand Piano by Alexander Holm, a Yamaha C5 grand, licensed CC-BY 3.0 (as hosted by Tone.js at https://tonejs.github.io/audio/salamander/).
